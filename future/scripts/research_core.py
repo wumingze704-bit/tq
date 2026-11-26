@@ -32,6 +32,8 @@ from cnfut.data.rolling_contract import build_continuous            # noqa: E402
 LIMIT_PCT = 0.07          # §22 已知偏差：历史涨跌停幅度不可得，用固定值
 FEE_RATE = 1e-4           # 成交额万分之 1（交易所标准量级）
 DEFAULT_TICK = 1.0
+SCORE_WEIGHTS = {"tsm": 0.35, "xsm": 0.20, "carry": 0.30, "bmom": 0.15}  # §12.1
+MAX_SINGLE_LOT_RISK = 0.10   # 单手风险硬上限（权益占比），配合"买得起一手就入池"
 
 
 def load_bars(path: Path) -> pd.DataFrame:
@@ -57,7 +59,35 @@ def build_features(cont: pd.DataFrame) -> pd.DataFrame:
     gate = frame[["tsm_volsc_20", "tsm_volsc_60", "tsm_volsc_120"]].sum(axis=1, min_count=3)
     frame["tsm_sign"] = np.sign(gate)
     frame["xsm_skip_60_5"] = group["log_p"].shift(5) - group["log_p"].shift(60)
+
+    # §10.3 展期收益：近月相对远月的年化价差（正值 = 反向市场，多头有正展期收益）
+    span_days = (frame["next_limit_date"] - frame["exec_limit_date"]).dt.days
+    ratio = frame["close"] / frame["next_close"].where(frame["next_close"] > 0)
+    frame["carry_roll"] = np.log(ratio.where(ratio > 0)) * 365.0 / span_days.where(span_days > 0)
+
+    # §10.4 基差动量：近 60 日执行合约与次远合约的累计对数收益之差
+    log_next = pd.Series(np.log(frame["next_close"].where(frame["next_close"] > 0)),
+                         index=frame.index)
+    next_shift = log_next.groupby(frame["product"]).shift(60)
+    frame["bmom_60"] = (frame["log_p"] - group["log_p"].shift(60)) - (log_next - next_shift)
     return frame
+
+
+FACTOR_COLUMNS = {"tsm": "tsm_volsc_60", "xsm": "xsm_skip_60_5",
+                  "carry": "carry_roll", "bmom": "bmom_60"}
+
+
+def combined_score(frame: pd.DataFrame, weights: dict, min_factors: int = 2) -> pd.Series:
+    """§12.1 规则综合分：各因子截面百分位的加权平均，缺失因子重新归一化。"""
+    percentiles = pd.DataFrame(
+        {key: cross_section_pct(frame, column)
+         for key, column in FACTOR_COLUMNS.items()}, index=frame.index)
+    weight = pd.Series(weights)
+    available = percentiles.notna()
+    total = (available * weight).sum(axis=1)
+    enough = available.sum(axis=1) >= min_factors
+    score = (percentiles.fillna(0.0) * weight).sum(axis=1) / total.replace(0.0, np.nan)
+    return score.where(enough)
 
 
 def cross_section_pct(frame: pd.DataFrame, column: str) -> pd.Series:
@@ -66,7 +96,7 @@ def cross_section_pct(frame: pd.DataFrame, column: str) -> pd.Series:
 
 
 def build_targets(features: pd.DataFrame, params: Params, capital: float,
-                  horizon: int, score_column: str) -> dict:
+                  horizon: int, score_column: str, long_only: bool = False) -> dict:
     """每 horizon 个交易日调仓；返回 {执行日(次日): {product: 带符号手数}}。"""
     frame = features.dropna(subset=[score_column, "tsm_sign", "atr_pts"]).copy()
     frame["pct"] = cross_section_pct(frame, score_column)
@@ -88,6 +118,8 @@ def build_targets(features: pd.DataFrame, params: Params, capital: float,
 
         longs = today[(today["pct"] >= 1.0 - params.portfolio.long_q) & (today["tsm_sign"] > 0)]
         shorts = today[(today["pct"] <= params.portfolio.short_q) & (today["tsm_sign"] < 0)]
+        if long_only:
+            shorts = shorts.iloc[0:0]
         picked = {}
         if params.portfolio.structure == "long_short":
             if len(longs):
@@ -156,11 +188,18 @@ def size_lots(row, params: Params, equity: float) -> int:
     if risk_lot <= 0:
         return 0
     notional = close * mult
-    if notional * 0.12 > params.universe.max_margin_lot_frac * equity:   # G1
+    # 品种池口径（用户规则）：两万元本金买得起一手即可入池 → 单手保证金 ≤ 权益
+    if notional * 0.12 > equity:                                          # G1'
         return 0
-    if notional > params.risk.max_notional_lot_mult * equity:            # G3
+    if notional > params.risk.max_notional_lot_mult * equity:             # G3
         return 0
     lots = int(params.risk.risk_per_trade * equity // risk_lot)          # G2
+    if lots == 0:
+        # 用户口径：买得起一手就参与；但单笔风险硬上限 10% 权益，避免一手就超预算
+        if risk_lot <= MAX_SINGLE_LOT_RISK * equity:
+            lots = 1
+        else:
+            return 0
     return max(0, min(lots, params.risk.max_lots_per_product))
 
 
@@ -185,12 +224,16 @@ def build_engine_inputs(bars: pd.DataFrame, cont: pd.DataFrame) -> tuple:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="最小纵切研究：单因子 -> 回测")
     parser.add_argument("--data", default="data/bars_all.parquet")
-    parser.add_argument("--strategy", default="tsm_only", choices=["tsm_only", "xsm_only"])
+    parser.add_argument("--strategy", default="combined",
+                        choices=["tsm_only", "xsm_only", "carry_only", "combined"])
     parser.add_argument("--horizon", type=int, default=10)
     parser.add_argument("--capital", type=float, default=20000.0)
     parser.add_argument("--start", default="2020-01-01")
     parser.add_argument("--end", default="2023-12-31")
     parser.add_argument("--out", default="artifacts/backtest")
+    parser.add_argument("--no-stop", action="store_true", help="情景 no_stop：去掉保护性止损")
+    parser.add_argument("--long-only", action="store_true", help="情景 long_only：只做多")
+    parser.add_argument("--tag", default="", help="输出目录后缀，便于区分情景")
     args = parser.parse_args(argv)
 
     params = Params()
@@ -202,14 +245,21 @@ def main(argv=None) -> int:
         .rename(columns={"symbol": "exec_symbol"}),
         on=["exec_symbol", "trade_date"], how="left")
 
-    score_column = "tsm_volsc_60" if args.strategy == "tsm_only" else "xsm_skip_60_5"
+    score_column = {"tsm_only": "tsm_volsc_60", "xsm_only": "xsm_skip_60_5",
+                    "carry_only": "carry_roll"}.get(args.strategy)
+    if score_column is None:
+        features["score"] = combined_score(features, SCORE_WEIGHTS)
+        score_column = "score"
     start, end = pd.Timestamp(args.start), pd.Timestamp(args.end)
     window = features[(features["trade_date"] >= start) & (features["trade_date"] <= end)]
-    targets = build_targets(window, params, args.capital, args.horizon, score_column)
+    targets = build_targets(window, params, args.capital, args.horizon, score_column,
+                           long_only=args.long_only)
 
     engine_bars, exec_map = build_engine_inputs(bars, cont)
     engine_bars = engine_bars[(engine_bars["trade_date"] >= start)
                               & (engine_bars["trade_date"] <= end)]
+    if args.no_stop:
+        engine_bars["atr_pts"] = np.nan
     exec_map = exec_map[(exec_map["trade_date"] >= start) & (exec_map["trade_date"] <= end)]
 
     result = Backtester(params, engine_bars, exec_map).run(targets)
@@ -219,7 +269,7 @@ def main(argv=None) -> int:
                   "rebalances": len(targets)})
     stats.update(rank_ic(window, score_column, args.horizon))
 
-    out_dir = Path(args.out) / f"{args.strategy}_h{args.horizon}"
+    out_dir = Path(args.out) / f"{args.strategy}_h{args.horizon}{args.tag}"
     out_dir.mkdir(parents=True, exist_ok=True)
     result.equity.to_csv(out_dir / "equity_daily.csv", encoding="utf-8-sig")
     result.trades.to_csv(out_dir / "trades.csv", index=False, encoding="utf-8-sig")

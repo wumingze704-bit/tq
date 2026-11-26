@@ -61,8 +61,22 @@ def _best(candidates: Iterable[str], oi_row: pd.Series, dkey: Dict[str, int]) ->
     return ranked[0] if ranked else None
 
 
+def _next_contract(current: str, columns, oi_row: pd.Series, dkey: Dict[str, int],
+                   min_oi: float) -> Optional[str]:
+    """§10.3 次远合约：交割月晚于执行合约、持仓量 ≥ min_oi 中交割月最近者。"""
+    candidates = [sym for sym in columns
+                  if sym != current
+                  and np.isfinite(oi_row.get(sym, np.nan))
+                  and float(oi_row.get(sym, 0.0)) >= min_oi
+                  and dkey.get(sym, -1) > dkey.get(current, -1)]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda s: (dkey[s], -float(oi_row.get(s, 0.0))))
+
+
 def _exec_series(sub: pd.DataFrame, sessions: np.ndarray,
-                 position: Dict[pd.Timestamp, int], params: RollParams):
+                 position: Dict[pd.Timestamp, int], params: RollParams,
+                 min_oi: float = 5000.0):
     """单个品种的执行合约序列（t 日收盘后判定，t+1 生效）。"""
     oi = sub.pivot_table(index="trade_date", columns="symbol",
                          values="close_oi", aggfunc="last")
@@ -76,6 +90,7 @@ def _exec_series(sub: pd.DataFrame, sessions: np.ndarray,
     pending_days = 0
     exec_today: Dict[pd.Timestamp, Optional[str]] = {}
     roll_flags: Dict[pd.Timestamp, bool] = {}
+    next_today: Dict[pd.Timestamp, Optional[str]] = {}
 
     for step, day in enumerate(oi.index):
         row = oi.loc[day]
@@ -86,7 +101,9 @@ def _exec_series(sub: pd.DataFrame, sessions: np.ndarray,
         exec_today[day] = current
         roll_flags[day] = False
         if current is None:
+            next_today[day] = None
             continue
+        next_today[day] = _next_contract(current, oi.columns, row, dkey, min_oi)
 
         candidate = _best(eligible, row, dkey)
         if candidate is None or candidate == current:
@@ -109,7 +126,7 @@ def _exec_series(sub: pd.DataFrame, sessions: np.ndarray,
         else:
             pending, pending_days = None, 0
 
-    return pd.Series(exec_today), pd.Series(roll_flags)
+    return pd.Series(exec_today), pd.Series(roll_flags), pd.Series(next_today)
 
 
 def _pick(frame: pd.DataFrame, symbols: pd.Series) -> pd.Series:
@@ -124,8 +141,8 @@ def _pick(frame: pd.DataFrame, symbols: pd.Series) -> pd.Series:
 
 
 def build_continuous(bars: pd.DataFrame, params: RollParams,
-                     atr_window: int = 20) -> pd.DataFrame:
-    """逐品种生成执行合约与连续收益序列，返回按 (product, trade_date) 排列的长表。"""
+                     atr_window: int = 20, carry_min_oi: float = 5000.0) -> pd.DataFrame:
+    """逐品种生成执行合约、次远合约与连续收益序列（长表）。"""
     missing = [c for c in REQUIRED_COLUMNS if c not in bars.columns]
     if missing:
         raise ValueError(f"bars 缺少列: {missing}")
@@ -140,7 +157,8 @@ def build_continuous(bars: pd.DataFrame, params: RollParams,
 
     results = []
     for product, sub in frame.groupby("product", sort=True):
-        exec_series, roll_flags = _exec_series(sub, sessions, position, params)
+        exec_series, roll_flags, next_series = _exec_series(
+            sub, sessions, position, params, carry_min_oi)
 
         wide = {name: sub.pivot_table(index="trade_date", columns="symbol",
                                       values=name, aggfunc="last")
@@ -156,14 +174,21 @@ def build_continuous(bars: pd.DataFrame, params: RollParams,
         tr_pct = tr / prev_close.where(prev_close > 0)
         atr_pct = tr_pct.rolling(atr_window, min_periods=atr_window).mean()
 
+        limits_by_symbol = sub.groupby("symbol")["limit_date"].first()
+        next_close = _pick(wide["close"], next_series)
+
         out = pd.DataFrame({
             "product": product,
             "exec_symbol": exec_series,
+            "next_symbol": next_series,
             "r_close": close / prev - 1.0,
             "r_open": open_ / prev - 1.0,
             "close": close,
             "prev_close": prev,
+            "next_close": next_close,
             "atr_pts": _pick(atr_pct, exec_series) * close,
+            "exec_limit_date": exec_series.map(limits_by_symbol),
+            "next_limit_date": next_series.map(limits_by_symbol),
             "roll_flag": roll_flags.reindex(exec_series.index).fillna(False).astype(bool),
         })
         out["P"] = (1.0 + out["r_close"].fillna(0.0)).cumprod()

@@ -53,7 +53,7 @@ rounds:
     depends_on: "P1 数据回填（已完成：B1 关闭）"
   - id: R3
     title: "年度 IC 分解 + 多空腿分解（诊断，不计试验）"
-    status: pending
+    status: researching
     trials: 0
     doc: future/docs/research/R3.md
   - id: R4

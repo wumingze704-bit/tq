@@ -133,7 +133,7 @@ R2 前置复核通过（数据缺口属本轮任务本身，已登记为 B1）�
   并把 `bootstrap_annual_lower95` / `cost_mult` 写进 `metrics.json`；单测 4 项（常数收益、可复现、
   负收益为负、样本不足）。
 - 影响：R2 因此可以完整判定——primary 过（t=2.25）但两条 secondary 不过 → failed。
-- 状态：**CLOSED**（随 R2 提交；提交哈希见本次提交）。
+- 状态：**CLOSED**（`d62f349`）。
 
 ### D6 重跑覆盖了 R1 的无 tag 产物目录（OPEN）
 

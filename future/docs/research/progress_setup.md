@@ -15,6 +15,7 @@
 | S5 | 总账校验 | 完成 | `ledger.yaml` 可 `yaml.safe_load`；`trials_used` 12 = R0(2)+R1(10) |
 | S6 | 结果可追溯 | 完成（R0 例外） | 5 个 run 目录的 metrics.json 与 R1 §8 逐项一致；**R0 的产物目录已被 D1 清理，无法核实**（见 review_log D3） |
 | S7 | 提交与报告 | 完成 | 本文件 + `SETUP_DONE.md`（首行 `结论：DONE`）+ `review_log.md` 追加 |
+| S8 | 接入官方技能包 | 完成 | `future/skills/tqsdk-trading-and-data/`（官方 zip 解压）+ `plan/3-技能包与TqSdk口径.txt`（T1~T13），已挂到 `0/00/1/2` 四个指令 |
 
 ## S1 环境
 

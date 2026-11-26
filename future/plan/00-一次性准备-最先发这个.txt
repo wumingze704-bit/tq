@@ -14,6 +14,12 @@
 二、检查项（逐条执行，结果写 progress_setup.md）
 1. 环境：python --version（需 ≥3.9，当前 3.11.9）、tqsdk.__version__（3.10.6）、
    pyarrow/lightgbm/matplotlib/pydantic/yaml/httpx 可导入。缺依赖只记录，不擅自升级 TqSdk。
+   环境检查优先跑技能包自带的只读脚本（不联网、不建会话、不读凭据）：
+   python future/skills/tqsdk-trading-and-data/scripts/check_environment.py
+   期望 status=ready、tqsdk_version=3.10.6。not_installed / import_error 按
+   future/skills/tqsdk-trading-and-data/references/environment-setup.md 处理；
+   本项目禁止升级 TqSdk。技能包缺失 → 按 future/plan/3-技能包与TqSdk口径.txt 第五节补装。
+
 2. 测试基线：cd future && python -m pytest tests -q，记录通过/失败数。必须全绿；
    不绿则修代码，禁止改断言或跳过测试。
 3. 目录：future/{cnfut,scripts,tests,docs/research,data,artifacts,plan} 存在。

@@ -19,6 +19,12 @@
 
 无缺失依赖，无需改动环境。
 
+**官方技能包已接入**：`tqsdk-trading-and-data`（下载 zip 32341 字节，解压后 SKILL.md 5603 字节）
+放在 `future/skills/tqsdk-trading-and-data/`，阅读顺序与参数口径固化在
+`future/plan/3-技能包与TqSdk口径.txt`（T1~T13），并由 `0/00/1/2` 四个指令引用。
+只读自检 `scripts/check_environment.py`：`status=ready`、`tqsdk_version=3.10.6`；
+在 `future/` 下运行时 `module_path` 指向 site-packages 的 tqsdk（T13）。
+
 ## P2 测试基线（检查项 2）
 
 ```

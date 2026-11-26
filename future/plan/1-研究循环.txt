@@ -32,6 +32,11 @@
 4. 实现：优先复用现有模块（cnfut/data/rolling_contract.py、cnfut/backtest/engine.py、
    scripts/research_core.py）。新增因子写在 research_core.py 的 build_features 内，
    并在 tests/ 增加至少一个手算单测。
+   动手前先读 future/plan/3-技能包与TqSdk口径.txt 与技能包 SKILL.md；取数类改动再读
+   references/market-data.md，回测/时序改动再读 references/simulation-and-backtest.md +
+   references/wait-update-and-update-loop.md，保证金/成本口径再读 references/scenario-and-margin.md。
+   T1~T12 与本节红线同权，违反按 §五 记缺陷处理。
+
 5. 运行：真实数据、真实指标，输出到 artifacts/backtest/<run_id>/（equity_daily.csv、
    trades.csv、metrics.json）。数据不足/接口报错时如实记录，不得用替代数据。
 6. 判定：逐条对照台账判据；计算 Rank IC 的 Newey-West t（滞后 = H）。
@@ -56,6 +61,14 @@ R2 补齐 SHFE/DCE 2017-2019 历史后重跑 `combined`（数据回填不计试�
      limit_date 用"交割月前一月最后交易日"；
   4. 合并去重后重跑数据体检；断言 SHFE/DCE 最早交易日 ≤ 2017-10-31；
   5. 用 2020-2023 与 2018-2023 两个窗口重跑 `combined`，与 R1 的 t=1.36 对比。
+   取数口径（按 future/plan/3-技能包与TqSdk口径.txt，先读 SKILL.md + references/market-data.md）：
+   a) get_kline_serial 单次 data_length ≤ 10000，日线 duration=86400；
+   b) 一次订阅、保存引用，靠 wait_update() 推进；禁止 sleep()，超时用 wait_update(deadline=...)；
+   c) SHFE/DCE 用 4 位 `YYMM`、CZCE 用 3 位 `YMM`；已下市合约不要用今天的 expired=False 过滤；
+   d) 失败重试 2 次仍失败 → 写失败清单 parquet + ledger.blockers 记一条（open），
+      不得用替代数据、不得外推（R1 红线）；
+   e) 合并去重后必须重跑 `python scripts/data_health.py`（T7 口径），C1~C4 全通过才允许重跑回测。
+
 
 R3 年度 IC 分解 + 多空腿分解（纯诊断，不计试验）
   1. 逐年计算 `combined` / `carry_only` 的 Rank IC 与 NW t；

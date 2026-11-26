@@ -1,0 +1,86 @@
+【技能包与 TqSdk 口径（所有指令共用；动手前先读这一页）】
+
+一、技能包位置（已随仓库入库，不是 pip 包、不代表已连账户）
+future/skills/tqsdk-trading-and-data/
+  SKILL.md                                  入口，先读
+  references/market-data.md                 行情、K线、合约发现、长区间历史下载
+  references/object-fields.md               quote/kline/account/position/order/trade 字段含义
+  references/simulation-and-backtest.md     TqSim / TqKq / TqBacktest 选择与回测时序
+  references/scenario-and-margin.md         保证金、风险度、TqScenario 试算
+  references/wait-update-and-update-loop.md wait_update / is_changing / deadline
+  references/error-faq.md                   报错排查顺序
+  references/example-map.md                 官方示例与文档定位
+  references/environment-setup.md           环境检查与安装
+  references/accounts-and-trading.md        读资金/持仓/委托/成交
+  references/order-functions-and-position-tools.md  下单/撤单/目标持仓/最小开仓手数
+  references/account-type-matrix.md         本地模拟/快期模拟/实盘/股票/多账户
+  scripts/check_environment.py              只读环境检查（不联网、不建会话、不读凭据）
+
+来源：https://doc.shinnytech.com/tqsdk/latest/ai_editor/skills/tqsdk-trading-and-data.zip
+本仓库副本：2026-11-26 下载解压（zip 32341 字节；SKILL.md 5603 字节）。
+
+二、按任务的阅读顺序
+1. 只要写/改 TqSdk 代码 → SKILL.md 必读，再按任务挑 references。
+2. 取数 / 历史回填（R2） → market-data.md + object-fields.md（K线字段）+ error-faq.md。
+3. 回测与指标 → simulation-and-backtest.md + wait-update-and-update-loop.md（回测时序）。
+4. 保证金 / 手续费 / 手数 / 风险度 → scenario-and-margin.md + object-fields.md。
+5. 任何报错 → error-faq.md 的排查顺序（账户类型 → 漏 wait_update → 股期混用 → 多账户漏 account= → 合约/偏移 → 目标持仓）。
+6. 实盘（本项目禁止执行，只在需要说明边界时读）→ accounts-and-trading.md、order-functions-and-position-tools.md、account-type-matrix.md。
+
+三、不可违反的口径（T1~T12，与各指令的红线同权）
+T1  K线 iloc[-1] 是正在形成的柱；收盘信号必须用 iloc[-2] 及已完成窗口。
+    本仓库研究期一律按 trade_date 取行（SETUP_DONE §3 已固化为实现规则）。
+T2  get_kline_serial / get_tick_serial 单次 data_length ≤ 10000；
+    日线及以上 duration 必须是 86400 的整数倍（≤28 天）。本项目日线统一 86400。
+T3  get_* 只订阅一次并保存引用，靠 wait_update() 推进；禁止在循环里重复订阅，
+    禁止用 sleep() 等数据；需要超时用 wait_update(deadline=...)。
+T4  KQ.m@... 主连只能看不能下单；要交易或计量必须换真实合约（必要时读 underlying_symbol）。
+T5  历史回测不能用今天的 expired=False 去排除历史合约；主连历史覆盖可能早于合约列表。
+T6  quote.margin 是"每手保证金金额"，不是比率；quote.commission 按品种分"元/手"与
+    "成交额比例"两种口径；历史保证金率不可得 → 统一 12% 并写明偏差。成本口径照
+    1-研究循环 §三（手续费万 1×2、滑点每边 1 tick）。
+T7  无成交日返回整行：close=NaN、volume=0、close_oi 有值；datetime=0 的占位行必须过滤
+    （本仓库 cnfut/data/quality.py 已做，复核用 scripts/data_health.py）。
+T8  回测只能用 TqSim/TqSimStock 作账户；回测期一次 wait_update 可能只推进订单状态、
+    下一次才推进行情时间，不能当成实时行情行为。
+T9  DataDownloader 是付费/需权限功能，用于长区间导出、不是回测；没有权限要如实记录并
+    在 ledger.blockers 记一条，不得改用替代数据或外推。
+T10 语法/导入通过 ≠ 取数或回测成功。报告必须写清：用了哪个解释器、SDK 版本、
+    实际验证了什么、哪一步没跑。
+T11 凭据只从环境变量取（TQ_AUTH_USER / TQ_AUTH_PASSWORD），不写文件、不打印、
+    不请求粘贴、不在报告里出现。
+T12 本仓库禁止：实盘下单、改 tqsdk/ 源码、升级已装 TqSdk（3.10.6 直接沿用）。
+    技能包里通用的"安装/升级/实盘执行"建议在本仓库一律不适用。
+T13 解释器与模块来源：本仓库是 tqsdk fork，仓库根的 `tqsdk/` 目录与 site-packages 同名。
+    - 研究/回测/取数脚本一律在 `future/` 目录下运行，此时用的是
+      `...\Lib\site-packages\tqsdk\__init__.py`（3.10.6）；
+    - 在仓库根运行 `check_environment.py` 时 `module_path` 会指向仓库内 `tqsdk/`
+      （同名目录遮蔽，environment-setup.md 说的遮蔽问题），属预期现象，不是错误；
+    - 报告里必须写明实际 `module_path` 与版本，避免"都显示 3.10.6 但跑的是两份代码"。
+
+四、各指令在哪里引用本页
+- 0-自动调度：会话开始检查新增"技能包存在性"，执行 1/2 前必须已读本页。
+- 00-一次性准备：环境检查改用 skills/.../scripts/check_environment.py；数据体检与 T7 对齐。
+- 1-研究循环：§二.4 实现前读 SKILL.md + market-data.md；§四 R2 取数按 T2/T3/T5/T9。
+- 2-最终检验：final_run.py 取窗口日线按 T2/T3，失败按 error-faq.md 顺序记录。
+
+五、补装（技能包缺失或损坏时）
+```powershell
+$ProgressPreference='SilentlyContinue'
+New-Item -ItemType Directory -Force -Path 'future/skills' | Out-Null
+Invoke-WebRequest -Uri 'https://doc.shinnytech.com/tqsdk/latest/ai_editor/skills/tqsdk-trading-and-data.zip' `
+  -OutFile "$env:TEMP\tqsdk-skill.zip" -UseBasicParsing
+Expand-Archive -LiteralPath "$env:TEMP\tqsdk-skill.zip" -DestinationPath 'future/skills' -Force
+Test-Path 'future/skills/tqsdk-trading-and-data/SKILL.md'   # 必须 True
+```
+离线或下载失败 → 报"缺少技能包"并停止研究/最终检验（参数口径依赖它），
+但可以继续做纯复核（不取数、不回测）。
+
+六、只读自检（不改环境、不联网）
+```powershell
+python future/skills/tqsdk-trading-and-data/scripts/check_environment.py
+```
+期望 status=ready、tqsdk_version=3.10.6。not_installed / import_error 按
+references/environment-setup.md 处理；本项目禁止升级 TqSdk。
+若该脚本在仓库根运行，`module_path` 会指向仓库内 `tqsdk/`（同名遮蔽，见 T13）；
+在 `future/` 下运行则指向 site-packages。两者都是 3.10.6，但报告必须写清来源。

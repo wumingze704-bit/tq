@@ -16,6 +16,9 @@
      并在文件顶部断言：研究期脚本（research_core.py）不得 import 它、不得引用该区间；
    - 复用 cnfut.data.fetch 拉取窗口内日线（只这一次），落盘到 data/final/<候选ID>/，
      不写入研究用 bars_all.parquet（避免污染研究期数据）；
+   - 取数口径强制按 future/plan/3-技能包与TqSdk口径.txt：日线 duration=86400、
+     data_length ≤ 10000、get_* 只订阅一次靠 wait_update() 推进、禁止 sleep() 等数据；
+     历史合约不得用今天的 expired=False 过滤。报错按 references/error-faq.md 顺序排查并记录。
    - 复用 cnfut.data.rolling_contract、cnfut.backtest.engine、research_core 的特征与打分，
      使用冻结参数（不得改动任何参数）；
    - 输出 artifacts/final/<候选ID>_<窗口ID>/{equity_daily.csv,trades.csv,metrics.json}。

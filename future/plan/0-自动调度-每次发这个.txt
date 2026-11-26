@@ -7,6 +7,8 @@
 - 00-一次性准备-最先发这个.txt
 - 1-研究循环.txt
 - 2-最终检验.txt
+- 3-技能包与TqSdk口径.txt（共用口径页：技能包位置、阅读顺序、T1~T12、补装命令；每个任务前必读）
+
 缺任何一个 → 停止并报告"缺少指令文件"。
 
 二、会话开始检查（每次做一次）
@@ -17,6 +19,11 @@
    $env:TQ_AUTH_PASSWORD=[Environment]::GetEnvironmentVariable('TQ_AUTH_PASSWORD','User')
    取不到 → 只做不依赖行情的复核，并在报告中写明。
 3. 测试基线：cd future && python -m pytest tests -q，必须全绿；不绿先修代码（不改断言）。
+4. 技能包：`future/skills/tqsdk-trading-and-data/SKILL.md` 必须存在，并读
+   `future/plan/3-技能包与TqSdk口径.txt`（T1~T12 参数与取数口径）。缺失按该页第五节补装；
+   仍缺 → 停止并报告"缺少技能包"（只允许继续做不取数、不回测的复核）。
+   执行 1-研究循环 / 2-最终检验 之前必须已读 SKILL.md 与对应 references。
+
 
 三、状态字段（唯一来源：future/docs/research/ledger.yaml）
 - stage: research / final_check / frozen / closed

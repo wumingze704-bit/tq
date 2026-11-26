@@ -130,3 +130,10 @@ geckodriver.log
 *.njsproj
 *.sln
 *.sw?
+
+# 期货策略工程（future/）：凭据与本地数据不入库
+future/data/
+future/artifacts/
+future/probe_result_*.json
+future/probe_*.json
+

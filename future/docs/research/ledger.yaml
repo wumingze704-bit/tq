@@ -1,0 +1,78 @@
+# 研究总账（唯一机器可读状态源）。调度器只读本文件判断该做什么。
+# 每次改动都要与 rounds/*.md、artifacts/backtest/*/metrics.json 对得上。
+
+project: cnfut-futures
+updated: "2026-11-26"
+stage: research            # research | final_check | frozen | closed
+
+budget:
+  global_trial_budget: 50
+  trials_used: 12
+
+data:
+  bars_file: future/data/bars_all.parquet
+  products: 15
+  symbols: 649
+  rows: 130157
+  start_czce: "2017-09-01"      # CF/FG/MA/RM/SR/TA
+  start_shfe_dce: "2019-09-17"  # 其余品种：query_quotes 列表被截断，需按代码生成补齐
+  note: "日线 datetime 为交易日 00:00；必须过滤 datetime=0 占位行；无成交日 close=NaN"
+
+acceptance:                 # 预登记判据，跑完不得修改
+  primary: "Rank IC 的 Newey-West t >= 2"
+  secondary:
+    - "年化净收益 > 0 且分块 bootstrap 95% 下限 > 0"
+    - "最大回撤 <= 30%"
+    - "cost2x 情景年化净收益 > 0"
+  reject_if: "任一不满足即失败，禁止通过调参补救"
+
+rounds:
+  - id: R0
+    title: "单因子基线：tsm_only / xsm_only"
+    status: failed            # pending | researching | failed | qualified | exhausted
+    trials: 2
+    doc: future/docs/research/R0.md
+    result: "8 品种 2020-2023：IC t=0.54/0.74，均不显著"
+  - id: R1
+    title: "持有期网格 H∈{5,10,20} + 场景诊断（no_stop / long_only）"
+    status: failed
+    trials: 10
+    doc: future/docs/research/R1.md
+    result: "口径修正后重跑：combined +1.18%/夏普0.153/IC t=1.36；carry_only +4.21% 但 IC t=-0.19（beta）；仍不达标"
+    superseded_note: "R1 早期数字基于回填前口径，已在 R1 §8 作废并重记"
+  - id: R2
+    title: "补齐 SHFE/DCE 2017-2019 历史后重跑 combined"
+    status: pending
+    trials: 0
+    doc: future/docs/research/R2.md
+    depends_on: "P1 数据回填"
+  - id: R3
+    title: "年度 IC 分解 + 多空腿分解（诊断，不计试验）"
+    status: pending
+    trials: 0
+    doc: future/docs/research/R3.md
+  - id: R4
+    title: "品种扩充到 >=20 后重跑"
+    status: pending
+    trials: 0
+    doc: future/docs/research/R4.md
+  - id: R5
+    title: "扩展方向（新因子/新状态划分），仅当 R2-R4 全失败后启用"
+    status: pending
+    trials: 0
+    doc: future/docs/research/R5.md
+
+candidates: []              # 达标并冻结后在此追加：{id, final, final_window, files_sha256}
+
+final_windows:
+  - id: FW1
+    start: "2024-07-01"
+    end: "2026-09-30"
+    status: unused          # unused | running | pass | fail
+    note: "只允许 2-最终检验 读取一次；未冻结候选前不得下载或查看该窗口数据"
+
+blockers:
+  - id: B1
+    text: "query_quotes 已下市列表截断：SHFE/DCE 只能取到 2019-09 起；需按品种挂牌月份生成合约代码"
+    affects: [R2, R4]
+    status: open

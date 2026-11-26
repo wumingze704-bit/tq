@@ -1,0 +1,43 @@
+【任务：最终检验（一次性，不可重跑）。由 0-自动调度 在存在 pending_final 候选时调用】
+
+你是本仓库（tqsdk fork，策略工程在 future/）的全权执行者。本任务：把**已冻结**的候选在
+最终检验窗口上跑一次，判定 pass / fail，写结论。全程不提问、不等确认。
+
+一、前置条件（任一不满足即停止并报告，不得变通）
+1. ledger.candidates 里存在 status=pending_final 的候选，且记录了冻结文件清单与 SHA256；
+2. ledger.final_windows 中对应窗口 status=unused；
+3. 候选的验收判据与 ledger.acceptance 完全一致（不一致说明预登记被改过，停止）；
+4. 当前冻结文件的 SHA256 与记录一致；不一致说明候选被改过，停止。
+5. 若该窗口 status 已是 pass/fail：**立即停止**，一句话说明"该窗口已用过，不得重跑"。
+
+二、执行（唯一入口 scripts/final_run.py；不存在就新建，且必须复用研究期同一套代码）
+1. 新建 future/scripts/final_run.py：
+   - 硬编码允许读取的日期区间为窗口 [start, end]（ledger 中的 FW1），
+     并在文件顶部断言：研究期脚本（research_core.py）不得 import 它、不得引用该区间；
+   - 复用 cnfut.data.fetch 拉取窗口内日线（只这一次），落盘到 data/final/<候选ID>/，
+     不写入研究用 bars_all.parquet（避免污染研究期数据）；
+   - 复用 cnfut.data.rolling_contract、cnfut.backtest.engine、research_core 的特征与打分，
+     使用冻结参数（不得改动任何参数）；
+   - 输出 artifacts/final/<候选ID>_<窗口ID>/{equity_daily.csv,trades.csv,metrics.json}。
+2. 运行一次。任何报错都如实记录，不得修参数重跑。
+3. 判定（全部满足为 pass）：照抄 ledger.acceptance；另外必须报告
+   Rank IC 与 NW t、cost2x 情景、最大回撤、成交笔数、以及与研究期样本外的周频均值之差。
+
+三、结果处理
+1. 写 future/docs/research/final/<候选ID>_<窗口ID>.md：前置复核、运行参数、结果表、逐条判定、
+   与研究期的差异说明（不足或超预期都要写）。
+2. 更新 ledger：窗口 status=pass/fail；候选 final=pass/fail。
+3. 若 pass：写 future/docs/research/CONCLUSION.md 的"达标候选"一节，并明确
+   "实盘上线需使用者本人决定，AI 不得启动任何实盘流程"。
+4. 若 fail：在 CONCLUSION.md 记"该候选在最终窗口失败"，候选状态 failed；
+   **不得在同一窗口上修改后重测**，也不得换窗口。
+5. git add -A future && commit（`future: 最终检验 <候选ID> <pass|fail>`）&& push origin develop。
+
+四、红线（违反即停止）
+1. 一个窗口只用一次；用过即不可重跑、不可换参数、不可换窗口。
+2. 检验期间不得查看窗口内任何中间结果后再改方案（禁止"看一眼再决定"）。
+3. 不实盘、不下单、不碰 live.stage。
+4. 不伪造；失败也必须写清楚失败在哪里。
+
+五、结束条件
+完成后停止并报告：候选、窗口、逐条判定、关键数字、下一步（写结论 / 等使用者决定）。

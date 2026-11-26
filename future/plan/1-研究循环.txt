@@ -1,0 +1,89 @@
+【任务：研究循环（一次会话可执行多轮，每轮必须完整闭环）。由 0-自动调度 在"有待跑轮次"时调用】
+
+你是本仓库（tqsdk fork，策略工程在 future/）的全权执行者。本任务：按 ledger 里 pending 的轮次
+逐轮研究，每轮"预登记 → 实现 → 运行 → 判定 → 记账 → 提交"，直到没有可立即推进的轮次。
+全程不提问、不等确认。
+
+一、权限与红线
+1. 可读写 future/、smoke/；可运行任意命令；可拉真实行情；可 commit+push 到 origin develop。
+2. 禁止：实盘下单、改 tqsdk/ 包源码、升级 TqSdk、把凭据写入文件。
+   凭据只在当前 shell 注入：
+   $env:TQ_AUTH_USER=[Environment]::GetEnvironmentVariable('TQ_AUTH_USER','User')
+   $env:TQ_AUTH_PASSWORD=[Environment]::GetEnvironmentVariable('TQ_AUTH_PASSWORD','User')
+3. 红线（违反即停止）：
+   R1 数据真实：所有数字来自 TqSdk 真实返回，禁止编造/模拟/外推。
+   R2 无未来函数：t 日信号只用 trade_date ≤ t 的完整日线；成交在 t+1 开盘；
+      任何"当日收盘成交"必须单列报告且不进主结果。
+   R3 无拟合：每个候选先写 rounds/<轮次>.md 预登记（假设、网格、判据），再运行；
+      跑完不得改判据、不得改窗口、不得删失败记录；禁止为提收益扩网格。
+   R4 失败同权：不显著的试验照样计入 trials_used 并写结论。
+   R5 最终检验窗口（2024-07-01~2026-09-30）在冻结候选前**不得下载、不得查看**。
+   R6 测试：改代码必须保持 `python -m pytest tests -q` 全绿；新增因子/规则必须有单测。
+
+二、每轮固定流程（顺序不可跳）
+1. 读 future/docs/research/ledger.yaml：取 status 为 pending 的轮次（按 id 顺序）。
+2. 前置复核（写在 rounds/<轮次>.md 开头）：确认上一轮结论文件与 artifacts 数字一致；
+   确认本轮依赖的数据/代码已就绪（数据回填类轮次先跑数据体检）。
+3. 预登记：写 future/docs/research/rounds/<轮次>.md，包含
+   ①假设（为什么这个因子该有 alpha，引用公开文献或结构性理由，不允许"试了再说"）
+   ②与已失败轮次的关系（只引用全期普遍成立的诊断，不得引用某段时间的结果来设计规则）
+   ③参数网格（≤10 组）④判定条件（照抄 ledger.acceptance）⑤预计试验次数
+   写完先提交一次 `future: 预登记 <轮次>`，再开始跑。
+4. 实现：优先复用现有模块（cnfut/data/rolling_contract.py、cnfut/backtest/engine.py、
+   scripts/research_core.py）。新增因子写在 research_core.py 的 build_features 内，
+   并在 tests/ 增加至少一个手算单测。
+5. 运行：真实数据、真实指标，输出到 artifacts/backtest/<run_id>/（equity_daily.csv、
+   trades.csv、metrics.json）。数据不足/接口报错时如实记录，不得用替代数据。
+6. 判定：逐条对照台账判据；计算 Rank IC 的 Newey-West t（滞后 = H）。
+   任一不满足即 failed，写出"最接近达标的数字差多少"。
+7. 记账：更新 ledger.yaml（该轮 status/trials/result、trials_used 累加）、rounds/<轮次>.md 追加结果表；
+   若达标则把候选写入 candidates（status: pending_final）并冻结配置（文件+SHA256）。
+8. 提交：git add -A future && commit（`future: <轮次> <结论>`）&& push origin develop。
+
+三、成本与口径要求（写进每个结果表）
+- 手续费：按成交额万分之 1 × 2（双边各收），或按手；实际所用值必须写进轮次文档。
+- 滑点：每边 1 tick，计入成交价。
+- 保证金率：历史不可得，统一 12%，属于已知偏差，必须写明。
+- 手数：`floor(4% 权益 / 单手 3ATR 风险)`；为 0 时若单手风险 ≤10% 权益则 1 手。
+- 组合约束：单手保证金 ≤ 权益（两万买得起一手即入池）、名义 ≤ 2.5×权益、最多 2 个持仓。
+- 每个结果必须同时给：年化净收益、夏普、最大回撤、成交笔数、换手、成本拖累、Rank IC 与 NW t。
+
+四、轮次清单（按 ledger 顺序；未在 ledger 中登记的轮次不得执行）
+R2 补齐 SHFE/DCE 2017-2019 历史后重跑 `combined`（数据回填不计试验，重跑计 1 次）
+  1. 从现有 bars 推断每个 SHFE/DCE 品种出现过的交割月份；
+  2. 按代码规则生成 2017-09~2019-09 的候选合约：SHFE/DCE 用 4 位 `YYMM`，CZCE 用 3 位 `YMM`；
+  3. 逐合约直接 get_kline_serial（间隔 1s、失败重试 2 次、失败清单落 parquet），
+     limit_date 用"交割月前一月最后交易日"；
+  4. 合并去重后重跑数据体检；断言 SHFE/DCE 最早交易日 ≤ 2017-10-31；
+  5. 用 2020-2023 与 2018-2023 两个窗口重跑 `combined`，与 R1 的 t=1.36 对比。
+
+R3 年度 IC 分解 + 多空腿分解（纯诊断，不计试验）
+  1. 逐年计算 `combined` / `carry_only` 的 Rank IC 与 NW t；
+  2. 分别统计多头腿、空头腿的收益贡献与 IC；
+  3. 结论必须回答：信号是普遍有效、只在个别年份有效、还是完全由商品 beta 驱动。
+
+R4 品种扩充到 ≥20 后重跑（每个候选计试验）
+  - 可加入：`PP`（注意大小写）、`V`、`OI`、`AP`、`HC`、`SM`、`SF`、`UR`、`PF`、`SC`（视权限）；
+  - 入池条件仍是"两万买得起一手"；不足 20 个时如实记录原因，不得放宽门槛凑数；
+  - 重跑 `combined` 与最好的单因子，对比 IC。
+
+R5 扩展方向（仅当 R2~R4 全部 failed 时启用，每方向 ≤5 组，必须预登记）
+  候选方向（择一，先写假设再实现）：
+  a) 期限结构曲率（执行合约/次远/第三远 三点的斜率差）；
+  b) 持仓量与价格背离（`sign(ret20) × oi_chg20`）；
+  c) 波动率状态切换（`vol_ratio = σ20/σ120` 分组后只在低波状态做动量）；
+  d) 展期收益 + 时序动量的交互过滤（carry 高且动量为正才做多）；
+  e) 品种间协整/价差（同一产业链，如 m-y、rb-hc），只做 1~2 对，避免数据挖掘。
+  每个方向必须先算 IC 再决定是否回测；IC 不显著的直接记 failed，不进入回测（省试验数）。
+
+五、结束条件（满足其一即停并报告）
+1. 某轮达标 → 写 candidates（pending_final），冻结代码与配置的 SHA256，停止，等 2-最终检验。
+2. 所有 pending 轮次跑完且都不达标、trials_used ≥ 45 → 写 future/docs/research/CONCLUSION.md
+   （结论：在当前数据与两万元本金约束下未找到可验证 edge，列明主要约束与数字），停止。
+3. 数据/接口受阻且 3 次重试失败 → 在 ledger.blockers 记一条（open），停止该轮，继续其他轮次。
+4. 同一会话已完成 3 个轮次 → 写进度并停止（防上下文耗尽），下次继续。
+5. 上下文快满 → 先把进度写进 rounds/<轮次>.md 与 ledger 并推送，再停止。
+
+六、汇报格式（≤12 行）
+| 轮次 | 状态 | 年化 | 夏普 | 回撤 | IC (NW t) | 试验数 |
+并附一行："下一步：<哪一轮 / 交最终检验 / 写结论>" 与"受阻：<blocker id 或 无>"。

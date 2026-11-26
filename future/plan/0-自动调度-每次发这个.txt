@@ -1,0 +1,77 @@
+【自动调度——平时只需要把本文件全部内容发给 AI；它自己判断现在该做哪件事并去做】
+
+你是本仓库（tqsdk fork，策略工程在 future/）的全权执行者。本任务：读总账与各结果文件，
+判断当前能推进的工作，按顺序执行对应指令，直到没有可立即推进的项为止。全程不提问、不等确认。
+
+一、指令文件位置（都在 future/plan/，每个自包含，执行时完整读取并当作使用者刚下达的指令）
+- 00-一次性准备-最先发这个.txt
+- 1-研究循环.txt
+- 2-最终检验.txt
+缺任何一个 → 停止并报告"缺少指令文件"。
+
+二、会话开始检查（每次做一次）
+1. 当前目录是 git 仓库、分支为 develop、`git remote -v` 有 origin；
+   先 `git pull --rebase origin develop`（失败则记录并继续，不 force）。
+2. 凭据注入（否则所有行情调用都会失败）：
+   $env:TQ_AUTH_USER=[Environment]::GetEnvironmentVariable('TQ_AUTH_USER','User')
+   $env:TQ_AUTH_PASSWORD=[Environment]::GetEnvironmentVariable('TQ_AUTH_PASSWORD','User')
+   取不到 → 只做不依赖行情的复核，并在报告中写明。
+3. 测试基线：cd future && python -m pytest tests -q，必须全绿；不绿先修代码（不改断言）。
+
+三、状态字段（唯一来源：future/docs/research/ledger.yaml）
+- stage: research / final_check / frozen / closed
+- rounds[].status: pending / researching / failed / qualified / exhausted
+- trials_used 与 global_trial_budget
+- candidates[]：{id, final: pending_final/pass/fail, files_sha256, final_window}
+- final_windows[]：{id, start, end, status: unused/running/pass/fail}
+- blockers[]：{id, text, status: open/closed}
+不要用 STATE.md 或聊天记忆判断状态；STATE.md 只是给人看的摘要。
+
+四、判断顺序（每执行完一项重新从第 0 条判断）
+0. `future/docs/research/SETUP_DONE.md` 不存在或第一行不是 `结论：DONE` → 执行 00-一次性准备；
+   它未完成时停止，不执行后面任何一项。
+1. ledger.yaml 不存在或 yaml 解析失败 → 执行 00-一次性准备（重建总账并核对 round 文档）。
+2. 存在 candidates 中 final=pending_final 的候选，且其 final_window 的 status=unused
+   且当前日期 ≥ 窗口 end → 执行 2-最终检验。
+   注意：窗口数据在冻结前不得下载/查看；若已有该窗口数据文件，先报告异常再继续。
+3. 存在 rounds[].status ∈ {pending, researching} 且 trials_used < global_trial_budget
+   → 执行 1-研究循环（按其规定一次会话最多 3 轮）。
+4. 所有 rounds 都是 failed/exhausted、candidates 为空：
+   - 若 `future/docs/research/CONCLUSION.md` 不存在 → 按 1-研究循环 第五节第 2 条写结论并停止；
+   - 已存在 → 停止并报告结论摘要。
+5. stage=frozen 且候选 final=pass → 停止并报告"等使用者决定是否实盘"（AI 不得启动任何实盘流程）。
+6. 以上都不满足 → 停止，并说明卡在哪个 blocker。
+
+五、前置复核（选中一项后、真正执行前必做，结论写 future/docs/research/review_log.md，只追加）
+1. 执行 1 之前：
+   - 测试全绿；
+   - 上一轮 rounds/<id>.md 的数字与 artifacts/backtest/<run>/metrics.json 一致；
+   - ledger 的 trials_used 等于各轮 trials 之和；
+   - 本轮已在 rounds/<id>.md 预登记（判据与 ledger.acceptance 一致），未登记不得开跑；
+   - 研究期脚本没有读取 2024-07-01 之后的数据（grep 日期常量 + 检查 fetch 的 start/end 参数）。
+2. 执行 2 之前：
+   - 候选冻结文件 SHA256 与 ledger 记录一致；
+   - final_windows 中该窗口 status=unused；
+   - scripts/final_run.py 存在，且只有它能读窗口区间；
+   - 研究期代码未 import final_run（grep 验证）。
+3. 发现问题时：
+   a) 文档数字与原始输出不一致 → 以原始输出为准修文档，ledger 同步；
+   b) 代码不符合指令规定 → 在 review_log.md 记缺陷（D2、D3…，状态 OPEN），先写能复现的测试，
+      再修代码，修好后改 CLOSED 并写提交哈希；
+   c) 缺陷影响已作出的判定 → 该轮判定作废（ledger 里把 status 改回 pending 并在 result 里写
+      "作废：<缺陷号>"），重跑；已 pass/fail 的最终检验窗口不得重跑；
+   d) 无法核实 → 记"无法核实"，跳过该步，继续判断其他项；
+   e) 同一缺陷 3 次修不好 → 记 BLOCKED 并停止。
+
+六、限制
+1. 同一会话内每个指令文件最多执行 2 次；1-研究循环 最多完成 3 个轮次。
+2. 每次被执行完的指令都会自己 commit+push；复核产生的 review_log.md 随下一次提交推送，
+   若本次没有任何提交，则单独提交一次 `future: 前置复核记录`。
+3. 上下文快满：让当前指令按它自己的规定写好进度文件与 ledger，再停止并报告。
+4. 禁止：实盘下单、改 tqsdk/ 源码、升级 TqSdk、把凭据写入文件、force push。
+
+七、停止时的报告（中文，简短）
+1. 本次执行了哪几项，各自结论（引用对应结果文件第一行）。
+2. 前置复核结论：复核了什么、发现缺陷（编号/状态）、是否作废过判定。
+3. 现状：stage、各轮状态、trials_used / budget、blockers、数据现状（品种数/起止日期）。
+4. 下一次值得再发本指令的时间或条件（例如"R2 完成后"），以及需要使用者本人决定的事。

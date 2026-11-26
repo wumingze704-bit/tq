@@ -1,0 +1,49 @@
+【任务：一次性准备（建立可信基线）。由 0-自动调度 在 SETUP_DONE 未标记 DONE 时调用；中断后重发会接着做】
+
+你是本仓库（tqsdk fork，策略工程在 future/）的全权执行者。本任务只做"把地基校准到可复现"，
+不研究策略。全程不提问、不等确认。进度写 future/docs/research/progress_setup.md，每完成一步就提交推送。
+
+一、权限
+1. 可读写 future/ 与 smoke/，可运行任意本地命令，可拉取真实行情，可 commit+push 到 origin develop。
+2. 禁止：实盘下单、改 tqsdk/ 包源码、升级已装 TqSdk、把凭据写进任何文件。
+3. 凭据只从用户级环境变量取：先在当前 shell 执行
+   $env:TQ_AUTH_USER=[Environment]::GetEnvironmentVariable('TQ_AUTH_USER','User')
+   $env:TQ_AUTH_PASSWORD=[Environment]::GetEnvironmentVariable('TQ_AUTH_PASSWORD','User')
+   取不到时停止并报告"缺少凭据"，不要尝试其他来源。
+
+二、检查项（逐条执行，结果写 progress_setup.md）
+1. 环境：python --version（需 ≥3.9，当前 3.11.9）、tqsdk.__version__（3.10.6）、
+   pyarrow/lightgbm/matplotlib/pydantic/yaml/httpx 可导入。缺依赖只记录，不擅自升级 TqSdk。
+2. 测试基线：cd future && python -m pytest tests -q，记录通过/失败数。必须全绿；
+   不绿则修代码，禁止改断言或跳过测试。
+3. 目录：future/{cnfut,scripts,tests,docs/research,data,artifacts,plan} 存在。
+4. 数据体检（读 future/data/bars_all.parquet）：
+   a) 行数、品种数、合约数、最早/最晚交易日；
+   b) 断言无 trade_date 重复（symbol+trade_date 唯一）；
+   c) 断言不存在 datetime=0 的占位行（clean_daily 已过滤）；
+   d) 断言 has_trade=True 的行 close 非空且 >0；
+   e) 按品种打印最早交易日（用于判断哪些品种需要回填）。
+   任一条不满足：修复数据层后重新拉取，不修改断言。
+5. 总账：future/docs/research/ledger.yaml 存在且可被 yaml.safe_load；字段 stage/trials_used/rounds 与
+   R0.md、R1.md 的记录一致。不一致以 rounds/*.md 与 artifacts/metrics.json 为准修正 ledger。
+6. 结果可追溯：future/artifacts/backtest/ 下每个 run 目录有 metrics.json，
+   且其中的 annual_return / sharpe / rank_ic_t_nw 与 ledger 该轮记录一致。
+
+三、底线
+1. 不伪造：所有数字来自实际运行。
+2. 不删除源代码；数据/结果目录只按第 4 条口径清理，其余不动。
+3. 不读、不打印、不写任何凭据。
+4. 测试不过就修代码或修检查脚本，不改断言、不跳过。
+
+四、结束时（必须做）
+1. 写 future/docs/research/SETUP_DONE.md：**第一行必须是 `结论：DONE`**，其后写准备时间、
+   环境与测试基线、数据体检结果、各品种最早交易日期、需要使用者处理的事项。
+2. progress_setup.md 记录每步状态（完成/进行中/BLOCKED）与提交哈希。
+3. git add -A future && commit（信息以 `future:` 开头）&& push origin develop。
+4. 报告：检查项逐条结论 + 数据现状表 + 下一步（交回 0-自动调度 判断）。
+
+五、结束条件
+1. 全部完成 → 停止并报告。
+2. 缺凭据 / 数据文件缺失且拉取失败 → 停止并报告，不进入研究。
+3. 同一问题连续 3 次修不好 → progress_setup.md 记 BLOCKED 并停止。
+上下文快满时先把进度写入 progress_setup.md 并推送，再停止。

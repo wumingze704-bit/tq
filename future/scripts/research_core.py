@@ -269,7 +269,8 @@ def main(argv=None) -> int:
                   "rebalances": len(targets)})
     stats.update(rank_ic(window, score_column, args.horizon))
 
-    out_dir = Path(args.out) / f"{args.strategy}_h{args.horizon}{args.tag}"
+    window_tag = f"{start:%Y%m%d}-{end:%Y%m%d}"
+    out_dir = Path(args.out) / f"{args.strategy}_h{args.horizon}_{window_tag}{args.tag}"
     out_dir.mkdir(parents=True, exist_ok=True)
     result.equity.to_csv(out_dir / "equity_daily.csv", encoding="utf-8-sig")
     result.trades.to_csv(out_dir / "trades.csv", index=False, encoding="utf-8-sig")

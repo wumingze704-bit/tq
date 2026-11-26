@@ -1,0 +1,71 @@
+.. _option_trade:
+
+期权交易 & 交易所官方组合
+====================================================
+TqSdk 中期权和交易所官方组合的合约代码格式参考如下::
+
+	DCE.m2609-C-2700 - 大商所豆粕期权
+	CZCE.CF609C13400 - 郑商所棉花期权
+	SHFE.au2608C944 - 上期所黄金期权
+	CFFEX.IO2606-C-4650 - 中金所沪深300股指期权
+	SSE.10010303 - 上交所上证50etf期权
+	SSE.10010936 - 上交所沪深300etf期权
+	SZSE.90007432 - 深交所沪深300etf期权
+	CZCE.SPD SR609&SR701 - 郑商所 SR609&SR701 跨期合约
+	DCE.SP a2609&a2705 - 大商所 a2609&a2705 跨期合约
+
+
+
+对于交易所官方组合，目前 TqSdk 中只支持交易所官方组合进行实盘交易，不支持在模拟中进行交易所官方组合交易
+
+
+期权指标计算&序列计算函数
+----------------------------------------------------
+TqSdk 内提供了丰富的期权指标计算&序列计算函数，参考如下：
+
+* :py:func:`~tqsdk.ta.OPTION_GREEKS` - 计算期权希腊指标
+* :py:func:`~tqsdk.ta.OPTION_IMPV` - 计算期权隐含波动率
+* :py:func:`~tqsdk.ta.BS_VALUE` - 计算期权 BS 模型理论价格
+* :py:func:`~tqsdk.ta.OPTION_VALUE` - 计算期权内在价值，期权时间价值
+* :py:func:`~tqsdk.tafunc.get_bs_price` - 计算期权 BS 模型理论价格
+* :py:func:`~tqsdk.tafunc.get_delta` - 计算期权希腊指标 delta 值
+* :py:func:`~tqsdk.tafunc.get_gamma` - 计算期权希腊指标 gamma 值
+* :py:func:`~tqsdk.tafunc.get_rho` - 计算期权希腊指标 rho 值
+* :py:func:`~tqsdk.tafunc.get_theta` - 计算期权希腊指标 theta 值
+* :py:func:`~tqsdk.tafunc.get_vega` - 计算期权希腊指标 vega 值
+* :py:func:`~tqsdk.tafunc.get_his_volatility` - 计算某个合约的历史波动率
+* :py:func:`~tqsdk.tafunc.get_t` - 计算 K 线序列对应的年化到期时间，主要用于计算期权相关希腊指标时，需要得到计算出序列对应的年化到期时间
+
+期权查询函数
+----------------------------------------------------
+TqSdk 内提供了完善的期权查询函数 :py:meth:`~tqsdk.TqApi.query_options` 和对应平值虚值期权查询函数  :py:meth:`~tqsdk.TqApi.query_atm_options` ，供用户搜索符合自己需求的期权::
+
+
+
+    from tqsdk import TqApi, TqAuth
+    api = TqApi(auth=TqAuth("快期账户", "账户密码"))
+
+    ls = api.query_options("SHFE.au2608")
+    print(ls)  # 标的为 "SHFE.au2608" 的所有期权
+
+    ls = api.query_options("SHFE.au2608", option_class="PUT")
+    print(ls)  # 标的为 "SHFE.au2608" 的看跌期权
+
+    ls = api.query_options("SHFE.au2608", option_class="PUT", expired=False)
+    print(ls)  # 标的为 "SHFE.au2608" 的看跌期权, 未下市的
+
+    ls = api.query_options("SHFE.au2608", strike_price=944)
+    print(ls)  # 标的为 "SHFE.au2608" 、行权价为 944 的期权
+
+    ls = api.query_options("SSE.510300")
+    print(ls)  # 中金所沪深300股指期权
+
+    ls = api.query_options("SSE.510300")
+    print(ls)  # 上交所沪深300etf期权
+
+    ls = api.query_options("SSE.510300", exercise_year=2020, exercise_month=12)
+    print(ls)  # 上交所沪深300etf期权, 限制条件 2020 年 12 月份行权
+
+
+
+

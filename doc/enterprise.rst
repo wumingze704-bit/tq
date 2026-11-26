@@ -1,0 +1,108 @@
+.. _enterprise:
+
+TqSdk 企业版
+=================================================
+除了 TqSdk 专业版以外，我们还提供 TqSdk 企业版本
+
+企业版和专业版相比的主要区别是柜台支持上的区别，企业版支持直连 CTP/融航/杰宜斯等柜台，专业版只能通过中继的方式去进行连接
+
+如果想使用 TqSdk 企业版功能，可以点击 `个人中心 <https://account.shinnytech.com/>`_ 申请15天试用或购买
+
+TqSdk 直连功能
+-------------------------------------------------
+在 TqSdk 企业版支持用户通过直连模式接入任意一家指定期货公司
+
+除了接入指定期货公司的优点以外，直连模式还带来了一下好处:
+
+* 交易指令直达期货公司，省去中继服务器路径，交易延迟平均减少10ms左右
+* 减少了交易服务器依赖，程序运行稳定性提升
+
+TqSdk 直连CTP模式的详细介绍，请点击 :py:class:`~tqsdk.TqCtp`
+
+
+.. _tqjees:
+
+TqSdk 连接平台功能
+-------------------------------------------------
+TqSdk 提供了资管平台的对接支持，支持用户连接到指定资管平台，例如杰宜斯或者融航资管系统等
+
+以连接融航模拟服务器为例::
+
+   from tqsdk import TqApi, TqRohon, TqAuth
+
+   account = TqRohon(account_id="融航账户", password="融航密码", front_broker="融航柜台代码", front_url="融航柜台地址", app_id="融航 AppID", auth_code="融航 AuthCode")
+   api = TqApi(account, auth=TqAuth("快期账户", "账户密码"))
+
+其中融航的 **模拟账户** 、 **模拟账户密码** 、 **app_id** 和 **auth_code** 需要自行和融航联系获取，其他参数在融航模拟下为
+
+front_url="tcp://129.211.138.170:10001"
+
+front_broker="RohonDemo"
+
+融航实盘情况下将对应信息换成实盘信息即可
+
+融航资管平台连接模式的详细介绍，请点击 :py:class:`~tqsdk.TqRohon`
+
+
+恒生 O32 柜台连接功能
+-------------------------------------------------
+TqSdk 提供了恒生 O32 柜台的连接支持，支持用户通过直连模式接入恒生 O32 柜台，详情可以点击 :py:class:`~tqsdk.TqO32` ::
+
+   from tqsdk import TqApi, TqAuth, TqO32, O32Account
+
+   account = TqO32(
+       account_id=O32Account(user="用户", fund="基金", asset_unit="资产单元", portfolio="组合"),
+       password="O32 密码",
+       td_front_url="trade_front_host:trade_front_port",
+       mc_front_url="query_front_host:query_front_port",
+       license_file="/path/to/license.dat",
+       auth_code="O32 授权码",
+   )
+   api = TqApi(account, auth=TqAuth("快期账户", "账户密码"))
+
+其中 `account_id` 通过 :py:class:`~tqsdk.O32Account` 传入，内部会拼接成 ``用户.基金.资产单元.组合`` 
+
+`td_front_url` / `mc_front_url` 为柜台方提供的前置地址，`license_file` 为本地许可证文件位置
+
+
+迅投柜台连接功能
+-------------------------------------------------
+TqSdk 提供了迅投柜台的连接支持，支持用户通过直连模式接入迅投柜台。
+
+.. note::
+
+   迅投柜台连接目前仅支持 Windows 环境。
+
+详情可以点击 :py:class:`~tqsdk.TqXuntou` ::
+
+   from tqsdk import TqApi, TqAuth, TqXuntou
+
+   account = TqXuntou(
+       account_id="迅投账户",
+       password="迅投密码",
+       account_type=1,
+       front_url="front_host:front_port",
+       app_id="迅投 AppID",
+       auth_code="迅投 AuthCode",
+   )
+   api = TqApi(account, auth=TqAuth("快期账户", "账户密码"))
+
+其中 `account_type` 为迅投账户类型，目前支持：
+
+* ``1``: 期货账户
+
+迅投目前已经将 ``1`` - 期货账户 和 ``5`` - 期货期权账户合并为一个账户类型，统一使用 ``1`` 表示。
+
+`account_id` 需要按 ``迅投账户.子账号`` 的格式传入，例如 ``test001.100555``。
+
+`front_url` 为柜台方提供的前置地址，格式如 ``112.54.165.180:9003``，`app_id` 和 `auth_code` 也需要向迅投柜台方获取。
+
+使用迅投柜台前，需要先在 ``$HOME/.tqsdk/otg_config/xuntou/config`` 目录下放置以下 3 个配置文件，这些文件由迅投提供：
+
+* ``server.crt``
+* ``traderApi.ini``
+* ``traderApi.log4xx``
+
+如果登录时遇到“缺失 xuntou 配置文件”报错，表示 ``$HOME/.tqsdk/otg_config/xuntou/config`` 目录下缺少上述相关配置文件。
+
+xuntou api 会在 ``$HOME/.tqsdk/otg_config/xuntou/userdata`` 目录下写入文件，此目录由用户自行管理，目录管理策略请咨询迅投。

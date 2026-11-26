@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -25,7 +26,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from cnfut.backtest.engine import Backtester                       # noqa: E402
-from cnfut.backtest.metrics import summarize                        # noqa: E402
+from cnfut.backtest.metrics import block_bootstrap_annual_return, summarize   # noqa: E402
 from cnfut.config import Params, RollParams                         # noqa: E402
 from cnfut.data.rolling_contract import build_continuous            # noqa: E402
 
@@ -203,14 +204,15 @@ def size_lots(row, params: Params, equity: float) -> int:
     return max(0, min(lots, params.risk.max_lots_per_product))
 
 
-def build_engine_inputs(bars: pd.DataFrame, cont: pd.DataFrame) -> tuple:
-    """把合约日线与连续序列拼成引擎需要的两张表。"""
+def build_engine_inputs(bars: pd.DataFrame, cont: pd.DataFrame,
+                        fee_rate: float = FEE_RATE) -> tuple:
+    """把合约日线与连续序列拼成引擎需要的两张表。``fee_rate`` 用于 cost2x 情景。"""
     merged = cont.merge(bars, left_on=["exec_symbol", "trade_date"],
                         right_on=["symbol", "trade_date"], how="inner", suffixes=("", "_bar"))
     merged["price_tick"] = merged["price_tick"].fillna(DEFAULT_TICK)
     merged["limit_up"] = merged["prev_close"] * (1.0 + LIMIT_PCT)
     merged["limit_down"] = merged["prev_close"] * (1.0 - LIMIT_PCT)
-    fee = merged["close"] * merged["volume_multiple"] * FEE_RATE * 2.0
+    fee = merged["close"] * merged["volume_multiple"] * fee_rate * 2.0
     merged["fee_open"] = fee
     merged["fee_close"] = fee
     merged["product"] = merged["product"].astype(str)
@@ -234,9 +236,16 @@ def main(argv=None) -> int:
     parser.add_argument("--no-stop", action="store_true", help="情景 no_stop：去掉保护性止损")
     parser.add_argument("--long-only", action="store_true", help="情景 long_only：只做多")
     parser.add_argument("--tag", default="", help="输出目录后缀，便于区分情景")
+    parser.add_argument("--cost-mult", type=float, default=1.0,
+                        help="成本倍数（1=基准；2=cost2x 情景：手续费与滑点同时翻倍）")
     args = parser.parse_args(argv)
 
     params = Params()
+    if args.cost_mult != 1.0:
+        # cost2x 情景：手续费率与滑点同时按倍数放大（判据 secondary 第 3 条）
+        params = replace(params, cost=replace(params.cost,
+                                              slippage_ticks=params.cost.slippage_ticks
+                                              * args.cost_mult))
     bars = load_bars(Path(args.data))
     cont = build_continuous(bars, RollParams())
     features = build_features(cont)
@@ -255,7 +264,7 @@ def main(argv=None) -> int:
     targets = build_targets(window, params, args.capital, args.horizon, score_column,
                            long_only=args.long_only)
 
-    engine_bars, exec_map = build_engine_inputs(bars, cont)
+    engine_bars, exec_map = build_engine_inputs(bars, cont, fee_rate=FEE_RATE * args.cost_mult)
     engine_bars = engine_bars[(engine_bars["trade_date"] >= start)
                               & (engine_bars["trade_date"] <= end)]
     if args.no_stop:
@@ -268,6 +277,12 @@ def main(argv=None) -> int:
                   "products": int(window["product"].nunique()),
                   "rebalances": len(targets)})
     stats.update(rank_ic(window, score_column, args.horizon))
+    bootstrap = block_bootstrap_annual_return(result.equity["equity"])
+    stats.update({"cost_mult": args.cost_mult,
+                  "bootstrap_annual_lower95": bootstrap["lower"],
+                  "bootstrap_annual_upper95": bootstrap["upper"],
+                  "bootstrap_block_days": bootstrap["block"],
+                  "bootstrap_samples": bootstrap["samples"]})
 
     window_tag = f"{start:%Y%m%d}-{end:%Y%m%d}"
     out_dir = Path(args.out) / f"{args.strategy}_h{args.horizon}_{window_tag}{args.tag}"

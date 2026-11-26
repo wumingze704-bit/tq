@@ -111,3 +111,42 @@
 
 R2 前置复核通过（数据缺口属本轮任务本身，已登记为 B1）。**没有作废任何已作出的判定。**
 
+## 2026-11-26 执行后复核（R2 结果记账）
+
+复核对象：`future/docs/research/{R2,ledger.yaml}`、`future/artifacts/backtest/*_r2backfill|*_cost2x`、
+`future/data/bars_all.parquet`、`future/artifacts/data_health.json`、`future/cnfut/backtest/metrics.py`、
+`future/scripts/{research_core,backfill_history}.py`、`future/cnfut/data/contracts.py`。
+
+| 项 | 结论 | 说明 |
+| --- | --- | --- |
+| R2 文档数字 ↔ 原始产物 | 符合 | 3 个 `metrics.json` 与 R2 §8.2 表逐项相等（年化/夏普/回撤/笔数/换手/成本/IC t/bootstrap） |
+| `trials_used` = Σ 各轮 trials | 符合 | 15 = R0(2) + R1(10) + R2(3) |
+| 数据体检 C1~C4 | 符合 | 162,370 行、826 合约、15 品种、1,538 交易日；四项全通过 |
+| 回填未读最终窗口 | 符合 | 回填区间 `--start 2017-09-01 --end 2019-09-30`；`bars_all.parquet` 最晚 2023-12-29 |
+| 测试基线 | 符合 | 38 passed（新增 `test_contracts.py` 7 项 + `test_metrics.py` 4 项） |
+| 旧产物目录被覆盖 | **不符合 → D6** | 无 tag 的 `combined_h10_20200101-20231231` 被回填后重跑覆盖 |
+
+### D5 次要判据不可计算（OPEN → 已修复/CLOSED）
+
+- 修复：`cnfut/backtest/metrics.py` 新增 `block_bootstrap_annual_return`（分块 20 天、2000 次、固定种子
+  `20261126`、取 5% 分位为下限），`research_core.py` 新增 `--cost-mult`（手续费率与滑点同时放大）
+  并把 `bootstrap_annual_lower95` / `cost_mult` 写进 `metrics.json`；单测 4 项（常数收益、可复现、
+  负收益为负、样本不足）。
+- 影响：R2 因此可以完整判定——primary 过（t=2.25）但两条 secondary 不过 → failed。
+- 状态：**CLOSED**（随 R2 提交；提交哈希见本次提交）。
+
+### D6 重跑覆盖了 R1 的无 tag 产物目录（OPEN）
+
+- 现象：R2 的对照窗口直接用 `--start 2020-01-01 --end 2023-12-31`（未加 tag）跑了一次，
+  覆盖了 R1 §8 的 `artifacts/backtest/combined_h10_20200101-20231231`；随后才意识到应加 tag。
+  该目录现在装的是**回填后**的数字（年化 −0.77%、IC t=1.27），与 R1 §8 的 +1.18%/1.36 不同。
+- 影响：R1 的原数字失去"可直接对照的产物目录"。但 ① R1.md §8 的表格完整保留；
+  ② 本次会话的前置复核（见上一条记录）已在**覆盖之前**逐项核对过 R1 §8 与当时产物一致；
+  ③ R2 §8.4 已写明差异原因（数据覆盖变化导致执行合约与 carry 序列变化）。
+  **不因此作废 R1 的判定**（R1 判定本就是 failed，且差异方向不影响"不达标"）。后续 R2 结果一律用
+  `_r2backfill` / `_cost2x` tag 的独立目录。
+- 处理：`review_log.md` 记录 + `R2.md` §8.4 说明；今后**重跑必须带 tag**（写入 `1-研究循环` 的执行习惯，
+  本条即为提醒）。
+- 状态：**OPEN**（记录性；已用带 tag 的目录保证 R2 可追溯）。
+
+

@@ -12,6 +12,37 @@ def daily_returns(equity: pd.Series) -> pd.Series:
     return equity.pct_change().fillna(0.0)
 
 
+def block_bootstrap_annual_return(equity: pd.Series, samples: int = 2000,
+                                  block: int = 20, seed: int = 20261126,
+                                  alpha: float = 0.05) -> dict:
+    """分块 bootstrap 的年化收益区间（`ledger.acceptance.secondary` 第 1 条要用）。
+
+    为什么分块而不是逐日：策略日收益存在自相关（重叠持有期），逐日重采样会把标准误低估；
+    按 `block` 天整块重采样保留块内自相关（§14.8 同口径）。固定随机种子保证可复现。
+    返回 ``{lower, upper, mean, samples, block, days}``；样本不足返回 ``None`` 值。
+    """
+    rets = daily_returns(equity).to_numpy(dtype=float)
+    n = int(len(rets))
+    if n < block * 2:
+        return {"lower": None, "upper": None, "mean": None,
+                "samples": samples, "block": block, "days": n}
+    count = n // block
+    shaped = rets[: count * block].reshape(count, block)
+    rng = np.random.default_rng(seed)
+    picks = rng.integers(0, count, size=(samples, count))
+    totals = np.prod(1.0 + shaped[picks], axis=(1, 2)) - 1.0        # 每个样本的累计收益
+    span = count * block
+    annual = np.power(1.0 + totals, ANNUAL_DAYS / span) - 1.0
+    return {
+        "lower": round(float(np.percentile(annual, 100 * alpha)), 4),
+        "upper": round(float(np.percentile(annual, 100 * (1 - alpha))), 4),
+        "mean": round(float(annual.mean()), 4),
+        "samples": int(samples),
+        "block": int(block),
+        "days": n,
+    }
+
+
 def summarize(result, capital: float, rf_annual: float = 0.0) -> dict:
     """从 `Backtester.run` 的返回值计算指标。"""
     eq = result.equity["equity"]

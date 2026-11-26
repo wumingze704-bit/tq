@@ -7,15 +7,19 @@ stage: research            # research | final_check | frozen | closed
 
 budget:
   global_trial_budget: 50
-  trials_used: 12
+  trials_used: 15
 
 data:
   bars_file: future/data/bars_all.parquet
   products: 15
-  symbols: 649
-  rows: 130157
+  symbols: 826
+  rows: 162370
+  sessions: 1538
   start_czce: "2017-09-01"      # CF/FG/MA/RM/SR/TA
-  start_shfe_dce: "2019-09-17"  # 其余品种：query_quotes 列表被截断，需按代码生成补齐
+  start_shfe_dce: "2017-09-01" # R2 回填后：rb/jd/i/p/c/m/y 全部到 2017-09-01
+  start_late_listed:           # 上市时间决定的边界，不是漏取
+    eg: "2018-12-10"
+    SA: "2019-12-06"
   note: "日线 datetime 为交易日 00:00；必须过滤 datetime=0 占位行；无成交日 close=NaN"
 
 acceptance:                 # 预登记判据，跑完不得修改
@@ -42,10 +46,11 @@ rounds:
     superseded_note: "R1 早期数字基于回填前口径，已在 R1 §8 作废并重记"
   - id: R2
     title: "补齐 SHFE/DCE 2017-2019 历史后重跑 combined"
-    status: pending
-    trials: 0
+    status: failed
+    trials: 3
     doc: future/docs/research/R2.md
-    depends_on: "P1 数据回填"
+    result: "回填 32,213 行（826 合约）；combined 2018-2023：+2.14%/夏普0.225/回撤24.19%/37笔/IC t=2.25（primary 过），但 bootstrap 95% 下限 -5.78%、cost2x 年化 -1.40%（两条 secondary 不过）→ failed"
+    depends_on: "P1 数据回填（已完成：B1 关闭）"
   - id: R3
     title: "年度 IC 分解 + 多空腿分解（诊断，不计试验）"
     status: pending
@@ -75,4 +80,10 @@ blockers:
   - id: B1
     text: "query_quotes 已下市列表截断：SHFE/DCE 只能取到 2019-09 起；需按品种挂牌月份生成合约代码"
     affects: [R2, R4]
+    status: closed
+    resolution: "R2 已实现 cnfut/data/contracts.py + scripts/backfill_history.py 按代码生成并回填：rb/jd/i/p/c/m/y 全部到 2017-09-01，0 失败"
+  - id: B2
+    text: "eg 的 2019-05 以前合约不可得：eg1901~eg1905 取数 TqTimeoutError（重试 2 次仍失败）；且 eg 2018-12-10 才上市、SA 2019-12-06 才上市，无法回到 2017-09"
+    affects: [R2, R4]
     status: open
+    resolution_hint: "若 R4 扩品种需要更长样本，可先查 DCE eg 挂牌合约表（eg1906 起）确认上市日；不得用替代数据填充"

@@ -35,7 +35,50 @@
 - 复现方式：对比 `artifacts/backtest/combined_h10_20200101-20231231/metrics.json` 与 R1 §2 表中数字。
 - 状态：**CLOSED**。
 
-### 遗留（不影响当前判定）
+## 2026-11-26 14:34 UTC 前置复核（执行 00-一次性准备）
 
-- 数据回填 blocker B1：SHFE/DCE 仅 2019-09 起，需按合约代码生成补齐（R2 处理）。
-- `carry_only` 的 IC t=−0.19 与正收益并存，需 R3 的多空腿分解解释。
+复核对象：`future/docs/research/{SETUP_DONE,R0,R1,ledger.yaml}`、`future/artifacts/backtest/*`、
+`future/data/bars_all.parquet`、`future/scripts/{research_core,pull_data,data_health}.py`、
+`future/cnfut/**`。基线提交 `aa7fc4f`。
+
+| 项 | 结论 | 说明 |
+| --- | --- | --- |
+| SETUP_DONE 首行标记 | **不符合 → D3** | 首行为 `# SETUP_DONE：§23 待实测清单回填（期货）`，不是 `结论：DONE`，调度器无法放行 |
+| 测试基线 | 符合 | `pytest future/tests -q` 26 passed（原 18 + 新增 8） |
+| 目录结构 | 符合 | `future/{cnfut,scripts,tests,docs/research,data,artifacts,plan}` 齐全 |
+| 数据体检 C1~C4 | 符合 | 重复 0、占位行 0、有成交行 close 全 >0、无成交行 close 全空 |
+| ledger 可解析、字段齐全 | 符合 | `yaml.safe_load` 通过；stage/trials_used/rounds/candidates/final_windows/blockers 均在 |
+| `trials_used` = 各轮 trials 之和 | 符合 | 12 = R0(2) + R1(10) |
+| ledger.data 与实测数据一致 | 符合 | rows 130157、products 15、symbols 649、start 2017-09-01 逐项相等 |
+| R1 文档数字 ↔ metrics.json | 符合 | 5 个 run 目录的年化/夏普/回撤/笔数/IC t 与 R1 §8 表逐项一致 |
+| R0 文档数字 ↔ 技术产物 | **无法核实 → D4** | `tsm_only`/`xsm_only` 的产物目录在 D1 修复时被删除，无 metrics.json 可比 |
+| 研究期脚本未读最终窗口 | 符合 | `research_core.py` 无 2024-07 之后的日期常量（默认窗口 2020-01-01~2023-12-31，来自入参）；`grep 2024-0[7-9]｜2025｜2026` 只命中文档/probe 输出 |
+| `scripts/final_run.py` 存在性 | 符合（尚未创建，符合预期） | 无候选、无最终检验需求；研究期代码未 import final_run |
+| 窗口数据文件是否已下载 | 符合 | `future/data/` 下无 `final/` 目录、无不含窗口区间数据；FW1 `unused` |
+
+### D3 SETUP_DONE 缺 `结论：DONE` 标记（OPEN → 已修复）
+
+- 现象：`SETUP_DONE.md` 是上一轮 §23 探测报告，首行不是调度器要求的 `结论：DONE`，
+  导致 `0-自动调度` 永远停在第 0 步、无法进入研究循环。
+- 修复：保留原 §23 报告全文（编号 §0~§7 不动，`cnfut/data/quality.py` 与
+  `design-review.md` §10 仍引用其 §3/§4），在文件顶部新增 §P1~§P8 准备记录，
+  **首行改为 `结论：DONE`**；同时新增 `progress_setup.md` 记录每步状态。
+- 复现方式：`Get-Content future/docs/research/SETUP_DONE.md -TotalCount 1` 应为 `结论：DONE`。
+- 状态：**CLOSED**（随本次提交）。
+
+### D4 R0 的技术产物缺失，数字不可追溯（OPEN）
+
+- 现象：`artifacts/backtest/` 只剩 5 个目录（combined/carry_only），R0 的
+  `tsm_only`/`xsm_only` 目录在 D1 重命名清理时被删除，R0.md 的 2.89%/0.778、
+  2.13%/0.639、IC t=0.54/0.74 无原始输出可核对。
+- 影响：不影响任何"当前判定"——R0 已是 failed（t 远小于 2），且 R1 之后口径已变
+  （CZCE 回填 + 最小手规则），补跑等于新试验、要占试验预算，不能用来"恢复" R0 的数字。
+- 处理：按 §五.3.d 记 **无法核实**，不改 R0 判定、不补跑；在 `SETUP_DONE.md` §P6 与
+  `R0.md` §2 顶部标注该限制。
+- 状态：**OPEN**（记录性缺陷，不阻塞任何轮次；后续判定一律要求产物目录存在）。
+
+### 结论
+
+本项（00-一次性准备）前置复核通过：D3 已修复并关闭，D4 为记录性缺陷（OPEN，不影响推进）。
+**没有作废任何已作出的判定。**
+

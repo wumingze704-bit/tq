@@ -1,4 +1,145 @@
-# SETUP_DONE：§23 待实测清单回填（期货）
+结论：DONE
+
+# SETUP_DONE：一次性准备完成记录
+
+> 本文件是 `plan/00-一次性准备-最先发这个.txt` 的完成标记，**第一行必须是 `结论：DONE`**
+> （调度器只认这一行；没有它就不放行研究/最终检验）。完成时间 2026-11-26。
+> 准备结论见 §P1~§P6。文末附录是同一文件里保留的 §23 实测报告原文（编号 §0~§7 未改动，
+> 因为 `cnfut/data/quality.py` 与 `design-review.md` §10 都引用它）。
+
+## P1 环境与依赖（检查项 1）
+
+| 项 | 值 | 结论 |
+| --- | --- | --- |
+| Python | 3.11.9 | 满足 ≥3.9 |
+| TqSdk | 3.10.6 | 满足；**未升级** |
+| pyarrow / pandas / numpy | 26.0.0 / 3.0.6 / 2.4.6 | 可导入 |
+| lightgbm / matplotlib / pydantic | 4.7.0 / 3.11.2 / 2.14.1 | 可导入 |
+| yaml / httpx / pytest | 6.0.3 / 0.28.1 / 9.1.1 | 可导入 |
+
+无缺失依赖，无需改动环境。
+
+## P2 测试基线（检查项 2）
+
+```
+cd future && python -m pytest tests -q
+..........................                                               [100%]
+26 passed in 3.06s
+```
+
+全绿。原有 18 个测试的断言一个字未改；新增 `tests/test_data_health.py`（8 个用例）
+覆盖本次新增的数据体检脚本。
+
+## P3 目录（检查项 3）
+
+`future/{cnfut,scripts,tests,docs/research,data,artifacts,plan}` 全部存在。
+
+## P4 数据体检（检查项 4）
+
+新增可复现脚本 `future/scripts/data_health.py`（唯一入口，README 内嵌用法）：
+
+```powershell
+cd future
+python scripts/data_health.py --data data/bars_all.parquet --out artifacts/data_health.json
+```
+
+| 项 | 结果 |
+| --- | --- |
+| 行数 | 130157（有成交 125544 / 无成交 4613） |
+| 品种数 | 15 |
+| 合约数 | 649 |
+| 交易日数 | 1089 |
+| 最早 / 最晚交易日 | 2017-09-01 / 2023-12-29 |
+
+| 检查 | 结论 | 明细 |
+| --- | --- | --- |
+| C1 `symbol + trade_date` 唯一 | 通过 | 重复行 0 |
+| C2 无 `datetime = 0` 占位行 | 通过 | 占位行 0 |
+| C3 `has_trade=True`（volume>0）行 close 非空且 >0 | 通过 | close 为空 0、close ≤ 0 共 0 |
+| C4 无成交行 close 为空（未被 ffill 污染） | 通过 | 无成交行却有 close 的 0 |
+
+任一条不满足才需要"修数据层后重新拉取"；本次四条全通过，**没有重新拉取数据**。
+
+### 按品种最早交易日（判断哪些品种还需回填）
+
+| 品种 | 交易所 | 合约数 | 最早交易日 | 回填需求 |
+| --- | --- | --- | --- | --- |
+| CF | CZCE | 27 | 2017-09-01 | 无 |
+| FG | CZCE | 54 | 2017-09-01 | 无 |
+| MA | CZCE | 54 | 2017-09-01 | 无 |
+| RM | CZCE | 31 | 2017-09-01 | 无 |
+| SR | CZCE | 27 | 2017-09-01 | 无 |
+| TA | CZCE | 54 | 2017-09-01 | 无 |
+| rb | SHFE | 52 | 2019-09-17 | **需回填到 2017-09（R2）** |
+| eg | DCE | 52 | 2019-09-26 | **需回填（R2）** |
+| jd | DCE | 52 | 2019-09-26 | **需回填（R2）** |
+| i | DCE | 51 | 2019-10-22 | **需回填（R2）** |
+| p | DCE | 51 | 2019-10-22 | **需回填（R2）** |
+| c | DCE | 25 | 2019-11-15 | **需回填（R2）** |
+| m | DCE | 34 | 2019-11-15 | **需回填（R2）** |
+| y | DCE | 34 | 2019-11-15 | **需回填（R2）** |
+| SA | CZCE | 51 | 2019-12-06 | 需回填（SK 上市品种，2019-12 前不存在） |
+
+8 个 SHFE/DCE 老品种仍只到 2019-09，与 `ledger.blockers[0]`（B1）一致：要补齐必须按交割月
+规则生成合约代码直接取日线，不能依赖 `query_quotes(expired=True)`（列表被截断）。
+
+## P5 总账校验（检查项 5）
+
+`future/docs/research/ledger.yaml` 可被 `yaml.safe_load`；关键字段与轮次文档一致：
+
+| 项 | 值 | 一致性 |
+| --- | --- | --- |
+| `stage` | `research` | 符合（未冻结、无候选） |
+| `budget.trials_used` | 12 | = R0(2) + R1(10)，与 `rounds[].trials` 之和相等 |
+| `budget.global_trial_budget` | 50 | 剩余 38 |
+| `rounds` | R0 failed / R1 failed / R2~R5 pending | 与 R0.md、R1.md 的判定一致 |
+| `candidates` | `[]` | 无候选，无需冻结 SHA256 |
+| `final_windows` | FW1 2024-07-01~2026-09-30，`unused` | 窗口未被读取 |
+| `blockers` | B1 `open` | 与 P4 的回填结论一致 |
+| `data.*` | rows 130157 / products 15 / symbols 649 / start 2017-09-01 | 与 P4 体检逐项相等 |
+
+## P6 结果可追溯（检查项 6）
+
+`future/artifacts/backtest/` 下每个 run 目录都有 `metrics.json`，且 `annual_return` /
+`sharpe` / `rank_ic_t_nw` 与 R1.md §8「口径变更后重跑」表逐项一致：
+
+| 目录 | 年化 | 夏普 | 回撤 | 笔数 | Rank IC (NW t) |
+| --- | --- | --- | --- | --- | --- |
+| `combined_h10_20190101-20231231` | +1.10% | 0.148 | 24.0% | 29 | 0.0352 (1.36) |
+| `combined_h10_20200101-20231231` | +1.18% | 0.153 | 24.0% | 29 | 0.0352 (1.36) |
+| `combined_h10_20200101-20231231_nostop` | −5.59% | −0.413 | 27.8% | 26 | 0.0352 (1.36) |
+| `carry_only_h10_20200101-20231231` | +4.21% | 0.381 | 24.7% | 35 | −0.0057 (−0.19) |
+| `carry_only_h10_20200101-20231231_nostop` | +6.91% | 0.591 | 21.8% | 31 | −0.0057 (−0.19) |
+
+**例外（已登记，不影响当前状态）**：R0 的两次试验（`tsm_only` / `xsm_only`）没有对应产物目录——
+D1 修复时把旧命名目录（`artifacts/backtest/tsm_only_h10` 等）删除后没有重跑。因此 R0.md 的
+0.54 / 0.74 两个 NW t **无法再与技术产物核对**。处理见 `review_log.md` D3：
+标"无法核实"，不改 R0 判定（本就是 failed），也不补跑（补跑会占试验预算、且口径已变，
+等于新试验）。后续轮次一律以"产物目录存在"为可追溯的前提。
+
+> 另需注意：`.gitignore` 里 `future/data/` 与 `future/artifacts/` **不入库**，所以上表的可追溯性
+> 只在本机成立；换机器/换克隆必须重跑才能复现数字（重跑命令见 P8）。
+
+## P7 需要使用者本人处理的事项
+
+1. **2015~2016 合约可及性**仍未确认（上一轮 3 次重试均超时）。R2 只在 2017-09~2019-09
+   范围内回填；若要把样本外前移，需要先确认这两年到底有没有数据。
+2. `TqBacktest` 免费可用性、15:00~17:00 数据就绪时刻、交易所保证金率与涨跌停当前标准，
+   仍属"需外部信息"，不影响研究期回测（已知偏差：保证金率统一 12%、涨跌停固定 7%）。
+3. 实盘相关（S2 之后）一律需要使用者本人决定，AI 不启动任何实盘流程。
+
+## P8 复现清单
+
+```powershell
+cd future
+python -m pytest tests -q                                        # 26 passed
+python scripts/data_health.py --out artifacts/data_health.json    # C1~C4 全通过
+```
+
+---
+
+# 附录：§23 待实测清单回填（原文保留，编号未改动）
+
 
 > 对应 `future/future.md` §23。运行环境：Python 3.11.9、TqSdk 3.10.6
 > （`C:\Users\32837\AppData\Local\Programs\Python\Python311\Lib\site-packages\tqsdk`）。

@@ -82,3 +82,32 @@
 本项（00-一次性准备）前置复核通过：D3 已修复并关闭，D4 为记录性缺陷（OPEN，不影响推进）。
 **没有作废任何已作出的判定。**
 
+## 2026-11-26 前置复核（执行 1-研究循环 → R2）
+
+复核对象：`future/docs/research/{R0,R1,R2,ledger.yaml}`、`future/artifacts/backtest/*/metrics.json`、
+`future/data/bars_all.parquet`、`future/scripts/{research_core,pull_data,data_health}.py`、`future/cnfut/**`。
+基线提交 `46b0f0b`。
+
+| 项 | 结论 | 说明 |
+| --- | --- | --- |
+| 测试全绿 | 符合 | `pytest tests -q` 26 passed |
+| 上一轮数字 ↔ 原始产物 | 符合 | R1 §8 表 5 行与 5 个 `metrics.json` 逐项相等（年化/夏普/回撤/笔数/IC t） |
+| `trials_used` = Σ 各轮 trials | 符合 | 12 = R0(2) + R1(10) |
+| 本轮已预登记 | 符合 | `R2.md` 先提交，判据照抄 `ledger.acceptance` |
+| 研究期脚本未读 2024-07-01 之后 | 符合 | 日期常量 grep 零命中；`bars_all.parquet` 最晚 2023-12-29；无 `scripts/final_run.py`、无 import |
+| 数据依赖 | 不满足（预期内） | SHFE/DCE 8 品种最早 2019-09-17~2019-11-15，正是 B1 要回填的部分；R2 第 1 步先回填 |
+| 次要判据可计算性 | **不符合 → D5** | `metrics` 无分块 bootstrap、`research_core` 无 cost2x 开关（R0/R1 同样未算） |
+
+### D5 次要判据有两项当前不可计算（OPEN）
+
+- 现象：`ledger.acceptance.secondary` 第 1 条的"分块 bootstrap 95% 下限"与第 3 条的"cost2x 情景"在现有引擎里都没有实现，
+  `artifacts/backtest/*/metrics.json` 里也没有对应字段。R0/R1 的判定只实际用到 primary + 最大回撤 + 年化收益。
+- 影响：**不影响任何已作出的判定**（全部 failed 的原因是 primary 不满足，与缺失两项无关）。
+  但若将来某轮 primary 通过，必须先把这两项补成可计算，才允许判 pass。
+- 处理：在 `R2.md` §5 显式标注"未计算"，不改判据；补实现留到"primary 通过"时再做（否则会占试验预算去跑无意义的情景）。
+- 状态：**OPEN**（记录性，不阻塞推进）。
+
+### 结论
+
+R2 前置复核通过（数据缺口属本轮任务本身，已登记为 B1）。**没有作废任何已作出的判定。**
+
